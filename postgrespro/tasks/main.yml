@@ -1,0 +1,77 @@
+---
+    - name: Установка локали ru_RU.UTF-8 (RedHat)
+      dnf:
+         name: glibc-langpack-ru
+         state: present
+      when: ansible_os_family == "RedHat"
+
+    - name: Установка локали ru_RU.UTF-8 с помощью localectl (для систем с systemd)
+      command: localectl set-locale LANG=ru_RU.UTF-8
+      when: ansible_os_family in ["RedHat", "Debian"]
+
+    - name: Скачивание скрипта для добавления репозитория PostgreSQL Pro
+      get_url:
+        url: https://repo.postgrespro.ru/1c/1c-17/keys/pgpro-repo-add.sh
+        dest: /tmp/pgpro-repo-add.sh
+        mode: '0755'
+
+    - name: Выполнение скрипта для добавления репозитория PostgreSQL Pro
+      command: sh /tmp/pgpro-repo-add.sh
+
+    # Проверка, что каталог /var/lib/pgpro/1c-17/data пустой
+    - name: Проверка, что каталог /var/lib/pgpro/1c-17/data пустой
+      command: find /var/lib/pgpro/1c-17/data -mindepth 1 -print -quit
+      register: check_data_dir
+      ignore_errors: yes
+
+    - name: Прерывание установки, если каталог не пустой
+      fail:
+        msg: "Каталог /var/lib/pgpro/1c-17/data содержит данные. Проверьте каталог установки"
+      when: check_data_dir.stdout != ""
+
+    - name: Установка PostgreSQL Pro
+      package:
+        name: postgrespro-1c-17
+        state: present
+      when: ansible_os_family in ["RedHat", "Debian"]
+
+    - name: Остановка службы postgrespro-1c-17
+      systemd:
+        name: postgrespro-1c-17
+        state: stopped
+
+    - name: Удаление каталога /var/lib/pgpro/1c-17/data
+      file:
+        path: /var/lib/pgpro/1c-17/data
+        state: absent
+
+    - name: Инициализация базы данных в кодировке ru_Ru.utf8
+      command: /opt/pgpro/1c-17/bin/initdb --locale=ru_RU.utf8 -D /var/lib/pgpro/1c-17/data
+      become_user: postgres
+
+    - name: Создание шаблона конфигурации PostgreSQL
+      template:
+        src: postgresql.conf.j2
+        dest: /var/lib/pgpro/1c-17/data/postgresql.conf
+        owner: postgres
+        group: postgres
+        mode: '0600'
+
+    - name: Создание шаблона конфигурации pg_hba.conf
+      template:
+        src: pg_hba.conf.j2
+        dest: /var/lib/pgpro/1c-17/data/pg_hba.conf
+        owner: postgres
+        group: postgres
+        mode: '0600'
+
+    - name: Добавление службы postgrespro-1c-17 в автозагрузку
+      systemd:
+        name: postgrespro-1c-17
+        enabled: yes
+
+    - name: Запуск службы postgrespro-1c-17
+      systemd:
+        name: postgrespro-1c-17
+        state: started
+    
