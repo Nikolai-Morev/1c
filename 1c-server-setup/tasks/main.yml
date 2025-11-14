@@ -1,0 +1,197 @@
+- name: Check if group grp1cv8 already exists
+  command: getent group grp1cv8
+  register: group_exists
+  changed_when: false
+  ignore_errors: true
+
+- name: Check if user usr1cv8 already exists
+  command: getent passwd usr1cv8
+  register: user_exists
+  changed_when: false
+  ignore_errors: true
+
+- name: Display info if group already exists
+  debug:
+    msg: "Group grp1cv8 already exists, skipping creation."
+  when: group_exists.rc == 0
+
+- name: Display info if user already exists
+  debug:
+    msg: "User usr1cv8 already exists, skipping creation."
+  when: user_exists.rc == 0
+
+- name: Try to create group grp1cv8 with preferred GID 1000 (if not exists)
+  block:
+    - name: Create group with preferred GID
+      group:
+        name: grp1cv8
+        gid: 1000
+      register: create_group_preferred
+  when: group_exists.rc != 0
+  rescue:
+    - name: Create group grp1cv8 with system-assigned GID (if preferred failed)
+      group:
+        name: grp1cv8
+        state: present
+      register: create_group_fallback
+
+- name: Try to create user usr1cv8 with preferred UID 989 (if not exists)
+  block:
+    - name: Create user with preferred UID
+      user:
+        name: usr1cv8
+        uid: 989
+        group: grp1cv8
+        shell: /bin/bash
+        create_home: yes
+      register: create_user_preferred
+  when: user_exists.rc != 0 and group_exists.rc == 0
+  rescue:
+    - name: Create user usr1cv8 with system-assigned UID (if preferred failed)
+      user:
+        name: usr1cv8
+        group: grp1cv8
+        shell: /bin/bash
+        create_home: yes
+        state: present
+      register: create_user_fallback
+
+- name: Create home directory for usr1cv8 user
+  file:
+    path: /home/usr1cv8
+    state: directory
+    owner: usr1cv8
+    group: grp1cv8
+    mode: '0755'
+  when: user_exists.rc != 0 or create_user_preferred is defined or create_user_fallback is defined
+
+- name: Display group creation result
+  debug:
+    msg: |
+      {% if group_exists.rc == 0 %}
+      Group grp1cv8 already existed
+      {% elif create_group_preferred is defined and create_group_preferred is success %}
+      Group grp1cv8 created with preferred GID 1000
+      {% elif create_group_fallback is defined and create_group_fallback is success %}
+      Group grp1cv8 created with system-assigned GID
+      {% else %}
+      Group creation failed or skipped
+      {% endif %}
+
+- name: Display user creation result
+  debug:
+    msg: |
+      {% if user_exists.rc == 0 %}
+      User usr1cv8 already existed
+      {% elif create_user_preferred is defined and create_user_preferred is success %}
+      User usr1cv8 created with preferred UID 989
+      {% elif create_user_fallback is defined and create_user_fallback is success %}
+      User usr1cv8 created with system-assigned UID
+      {% else %}
+      User creation failed or skipped
+      {% endif %}
+
+- name: Get final group info
+  command: getent group grp1cv8
+  register: final_group_info
+  changed_when: false
+  ignore_errors: true
+
+- name: Get final user info
+  command: getent passwd usr1cv8
+  register: final_user_info
+  changed_when: false
+  ignore_errors: true
+
+- name: Display final group GID
+  debug:
+    msg: "Final - Group grp1cv8 has GID: {{ final_group_info.stdout.split(':')[2] | defaults('unknown') }}"
+  when: final_group_info.rc == 0
+
+- name: Display final user UID
+  debug:
+    msg: "Final - User usr1cv8 has UID: {{ final_user_info.stdout.split(':')[2] | defaults('unknown') }}"
+  when: final_user_info.rc == 0
+
+- name: Create installation directory
+  file:
+    path: "{{ install_dir }}"
+    state: directory
+    mode: '0755'
+
+- name: Copy all files from files directory to installation directory
+  copy:
+    src: "{{ item }}"
+    dest: "{{ install_dir }}"
+    mode: '0644'
+  with_fileglob:
+    - "{{ role_path }}/files/{{ version_1c }}/*.rpm"
+
+- name: Find all RPM files in installation directory
+  find:
+    paths: "{{ install_dir }}"
+    patterns: "*.rpm"
+  register: rpm_files
+
+- name: Check if RPM files exist before installation
+  assert:
+    that:
+      - rpm_files.files | length > 0
+    fail_msg: "No RPM files found in {{ install_dir }} for installation"
+
+- name: Install all RPM packages found
+  command: "dnf install -y {{ rpm_files.files | map(attribute='path') | join(' ') }} --nogpgcheck"
+  become: yes
+  when: rpm_files.files | length > 0
+
+- name: Check if any RPM files were found
+  debug:
+    msg: "No RPM files found in {{ install_dir }}"
+  when: rpm_files.files | length == 0
+
+- name: Create systemd service srv1cv83.service from template
+  template:
+    src: srv1cv83.service.j2
+    dest: /usr/lib/systemd/system/srv1cv83.service
+    mode: '0644'
+  become: yes
+  notify: reload systemd
+
+- name: Create systemd service srv1cv83-ras.service from template
+  template:
+    src: srv1cv83-ras.service.j2
+    dest: /usr/lib/systemd/system/srv1cv83-ras.service
+    mode: '0644'
+  become: yes
+  notify: reload systemd
+
+- name: Create systemd service srv1cv83-crs.service from template
+  template:
+    src: srv1cv83-crs.service.j2
+    dest: /usr/lib/systemd/system/srv1cv83-crs.service
+    mode: '0644'
+  become: yes
+  notify: reload systemd
+
+- name: Enable and start srv1cv83 service
+  systemd:
+    name: srv1cv83
+    enabled: yes
+    state: started
+  become: yes
+
+- name: Enable and start srv1cv83-ras service
+  systemd:
+    name: srv1cv83-ras
+    enabled: yes
+    state: started
+  become: yes
+
+- name: Enable and start srv1cv83-crs service
+  systemd:
+    name: srv1cv83-crs
+    enabled: yes
+    state: started
+  become: yes
+
+- meta: flush_handlers

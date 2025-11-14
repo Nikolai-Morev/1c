@@ -1,0 +1,23 @@
+[Unit]
+Description=1C:Enterprise Remote Administration Server 8.3 (8.3.25.1520)
+Requires=network.target
+
+[Service]
+Type=simple
+User=usr1cv8
+Group=grp1cv8
+# Remote administration server port
+Environment=RAS_PORT=1545
+
+# Address of cluster agent. Default - empty, so ras administers cluster,
+# running on localhost and standard agent port
+# example value:
+#   host[:port]
+Environment=RAS_CLUSTER_ADDRESS=
+
+ExecStart=/opt/1cv8/x86_64/8.3.25.1520/ras cluster --port=${RAS_PORT} $RAS_CLUSTER_ADDRESS --monitor-base=/metrics
+Restart=always
+RestartSec=1
+
+[Install]
+WantedBy=multi-user.target
