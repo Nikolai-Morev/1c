@@ -1,0 +1,58 @@
+- name: Установка необходимых зависимостей для RHEL 8
+  dnf:
+    name: wget
+    state: present
+  when: ansible_os_family == "RedHat"
+
+- name: Добавление репозитория PowerShell
+  get_url:
+    url: https://packages.microsoft.com/config/rhel/8/prod.repo
+    dest: /etc/yum.repos.d/microsoft-prod.repo
+  when: ansible_os_family == "RedHat"
+
+- name: Установка PowerShell
+  dnf:
+    name: powershell
+    state: present
+  when: ansible_os_family == "RedHat"
+
+#- name: Установка gssntlmssp
+#  dnf:
+#    name: gssntlmssp
+#    state: present
+#  when: ansible_os_family == "RedHat"
+
+- name: Set permissions for /opt/microsoft/powershell/7/
+  file:
+    path: /opt/microsoft/powershell/
+    mode: '0755'
+    state: directory
+
+- name: Установка и проверка модулей PowerShell
+  shell: |
+    pwsh -Command "
+    # Установка PowerShellGet если отсутствует
+    if (-not (Get-Module -ListAvailable -Name PowerShellGet)) {
+        Write-Host 'Установка PowerShellGet'
+        Install-Module -Name PowerShellGet -Force -AllowClobber -AcceptLicense -SkipPublisherCheck
+    }
+    
+    # Установка PSWSMan если отсутствует
+    if (-not (Get-Module -ListAvailable -Name PSWSMan)) {
+        Write-Host 'Установка PSWSMan'
+        Install-Module -Name PSWSMan -Force -AllowClobber -AcceptLicense -SkipPublisherCheck
+    }
+    
+    # Финальная проверка
+    if ((Get-Module -ListAvailable -Name PowerShellGet) -and (Get-Module -ListAvailable -Name PSWSMan)) {
+        Write-Host 'Все модули успешно установлены'
+        exit 0
+    } else {
+        Write-Error 'Не удалось установить все необходимые модули'
+        exit 1
+    }
+    "
+  register: module_install
+  changed_when: module_install.rc == 0
+  failed_when: module_install.rc != 0
+  when: ansible_os_family == "RedHat"
